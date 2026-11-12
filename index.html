@@ -33,7 +33,7 @@ button:active{transform:scale(.98)}
 .btn-main{background:var(--accent);color:var(--accent-text)}
 .btn-ok{background:var(--green);color:#fff}
 .btn-soft{background:var(--bg);color:var(--text)}
-.small{font-size:12px;padding:6px 10px;width:auto}
+.small{font-size:12px;padding:6px 10px;width:auto;white-space:nowrap}
 .card{background:var(--card);border-radius:14px;margin-bottom:8px;overflow:hidden}
 .head{display:flex;gap:10px;padding:12px;cursor:pointer;align-items:flex-start}
 .num{width:30px;height:30px;border-radius:50%;background:var(--blue-bg);color:var(--accent);display:flex;align-items:center;justify-content:center;font-weight:600;flex-shrink:0}
@@ -54,6 +54,9 @@ button:active{transform:scale(.98)}
 .done{display:flex;justify-content:space-between;align-items:center;background:var(--card);border-radius:12px;padding:8px 12px;margin-bottom:6px;color:var(--muted)}
 .empty{text-align:center;color:var(--muted);padding:30px 10px}
 .mt8{margin-top:8px}.mb10{margin-bottom:10px}
+.live{display:inline-flex;align-items:center;gap:6px;background:var(--green-bg);color:var(--green);border-radius:20px;padding:2px 10px;font-size:12px;font-weight:600}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--green);animation:pulse 1.6s infinite}
+@keyframes pulse{0%{opacity:1}50%{opacity:.25}100%{opacity:1}}
 #err{display:none;background:var(--red-bg);color:var(--red);border-radius:12px;padding:10px 12px;margin-bottom:10px;font-size:13px}
 </style>
 </head>
@@ -65,7 +68,13 @@ button:active{transform:scale(.98)}
 const tg = window.Telegram && window.Telegram.WebApp;
 if (tg) { tg.ready(); tg.expand(); }
 const initData = (tg && tg.initData) || "";
-let state = null, openIds = new Set(), lastLoc = null, busy = false, helpOpen = false;
+let state = null, openIds = new Set(), lastLoc = null, busy = false, helpOpen = false, liveHelp = false;
+const LIVE_HELP = `<div class="box mb10" style="font-size:14px">
+  <b>📡 Live einschalten (einmal am Tag)</b>
+  <p class="mt8">1. Diese Route schließen<br>2. Im Bot-Chat unten auf 📎 tippen<br>3. <b>Standort</b> → <b>„Live-Standort teilen“</b><br>4. <b>„Bis ich es beende“</b> wählen</p>
+  <p class="sub" style="margin:0 0 8px">Danach läuft es den ganzen Tag, auch mit gesperrtem Handy. Hier oben steht dann 📡 Live. Nur der Bot sieht deinen Standort.</p>
+  <button class="btn-main" onclick="try{tg.close()}catch(e){}">Zum Chat</button>
+</div>`;
 const HELP = `<div class="box mb10" style="font-size:14px">
   <div class="row between"><b>So läuft's richtig</b><button class="small btn-soft" style="width:auto" onclick="helpOpen=false;render()">Schließen</button></div>
   <p class="mt8"><b>1. Auftrag rein:</b> In der Gruppe lange drücken → Weiterleiten → Routen-Bot. Nicht kopieren, sonst stimmt die Uhrzeit nicht.</p>
@@ -73,7 +82,7 @@ const HELP = `<div class="box mb10" style="font-size:14px">
   <p><b>3. Kunde sagt ab →</b> ❌ Storno.</p>
   <p><b>4. Kunde sagt „später ok“ →</b> +30 Min, +1 Std oder „Kunde weiß Bescheid“.</p>
   <p><b>5. Anders fahren?</b> Auftrag antippen → „Als nächstes“ / „Nach hinten“.</p>
-  <p><b>📡 Am besten Live-Standort teilen:</b> Im Bot-Chat 📎 → Standort → „Live-Standort teilen“ → 8 Std. Dann stimmen Ankunft und „Jetzt anrufen“ genau. Nur der Bot sieht ihn.</p>
+  <p><b>📡 Am besten Live-Standort teilen:</b> Im Bot-Chat 📎 → Standort → „Live-Standort teilen“ → „Bis ich es beende“. Dann stimmen Ankunft und „Jetzt anrufen“ genau. Nur der Bot sieht ihn.</p>
   <p class="sub" style="margin:0">Falsch gedrückt? Unten bei „Heute erledigt“ → Rückgängig. Jeden Morgen um 4 Uhr startet die Route neu.</p>
 </div>`;
 
@@ -101,7 +110,7 @@ async function act(body){
   try {
     if (lastLoc) { body.lat = lastLoc.lat; body.lng = lastLoc.lng; }
     state = await api("/api/action", body); showError(""); render();
-    if (state.ok === false) haptic("error"); else haptic("success");
+    if (body.action !== "location") { if (state.ok === false) haptic("error"); else haptic("success"); }
   } catch(e){ showError(e.message); haptic("error"); }
   finally { busy = false; }
 }
@@ -161,13 +170,27 @@ function routeIds(){ return state.stops.filter(s => s.pos).map(s => s.id); }
 function render(){
   if (!state) return;
   const s = state;
-  const locTxt = s.has_location ? ("Standort vor " + (s.loc_age_min||0) + " Min") : "Standort fehlt";
+  const live = s.live || {};
+  const locTxt = s.has_location ? ("📍 Standort vor " + (s.loc_age_min||0) + " Min") : "📍 Standort fehlt";
+  let status, btns;
+  if (live.active) {
+    status = `<span class="live"><span class="dot"></span>📡 Live</span>`;
+    btns = `<button class="small btn-soft" style="width:auto" onclick="act({action:'live_off'})">Live aus</button>`;
+  } else if (live.off) {
+    status = `<span class="sub">${esc(locTxt)}</span>`;
+    btns = `<button class="small btn-soft" style="width:auto" onclick="refreshLocation(this)" aria-label="Standort neu">📍</button>
+            <button class="small btn-soft" style="width:auto" onclick="act({action:'live_on'})">📡 Live an</button>`;
+  } else {
+    status = `<span class="sub">${esc(locTxt)}</span>`;
+    btns = `<button class="small btn-soft" style="width:auto" onclick="liveHelp=!liveHelp;render()">📡 Live starten</button>`;
+  }
   let h = `
   <div class="row between mb10">
-    <div><h1>Deine Route</h1><div class="sub">${esc(locTxt)}${s.route_real ? "" : (s.stops.length ? " · Fahrzeiten geschätzt" : "")}</div></div>
-    <div class="row"><button class="small btn-soft" style="width:auto" onclick="refreshLocation(this)">📍 Standort neu</button>
+    <div><h1>Deine Route</h1><div style="margin-top:3px">${status}${s.route_real ? "" : (s.stops.length ? ' <span class="sub">· Fahrzeiten geschätzt</span>' : "")}</div></div>
+    <div class="row">${btns}
     <button class="small btn-soft" style="width:auto" onclick="helpOpen=!helpOpen;render()" aria-label="Hilfe">❓</button></div>
   </div>
+  ${liveHelp && !live.active ? LIVE_HELP : ""}
   ${helpOpen ? HELP : ""}
   <div class="grid2 mb10">
     <div class="box stat"><div class="sub">Offen</div><div class="n">${s.counts.open}</div></div>
@@ -288,8 +311,13 @@ function storno(id){
 if (!initData) {
   document.getElementById("app").innerHTML = '<div class="empty">Keine Anmeldung von Telegram.<br><br>Bitte über den Button „🗺 Route öffnen“ in einer Bot-Nachricht oder über „Route“ links unten neben dem Eingabefeld öffnen.</div>';
 } else {
-  load().then(() => refreshLocation());
+  load().then(() => { if (!(state && state.live && state.live.off)) refreshLocation(); });
   setInterval(tick, 1000);
+  // solange die App offen ist und Live nicht aus: alle 2 Min Standort mitschicken
+  setInterval(async () => {
+    if (!state || (state.live && state.live.off) || document.hidden || busy) return;
+    if (await getLocation()) act({action:"location"});
+  }, 120000);
   setInterval(load, 60000);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) load(); });
 }

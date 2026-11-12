@@ -187,8 +187,13 @@ async def build_state(user_id: int) -> dict:
     ]
 
     first = out_stops[0] if out_stops else None
+    live_off = bool(user and user["live_off"])
+    live_until = db.parse_iso(user["live_until"]) if user and user["live_until"] else None
+    # Live gilt als aktiv, wenn geteilt, nicht abgelaufen und letztes Update < 15 Min
+    live_active = bool(live_until and live_until > now and loc_age is not None and loc_age <= 15 and not live_off)
     return {
         "now": db.iso(now),
+        "live": {"active": live_active, "off": live_off, "shared": bool(live_until and live_until > now)},
         "has_location": bool(start),
         "loc_age_min": round(loc_age) if loc_age is not None else None,
         "route_real": real,

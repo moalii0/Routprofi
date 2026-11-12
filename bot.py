@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+from datetime import timedelta
 
 from aiohttp import web
 from telegram import (
@@ -141,7 +142,7 @@ HILFE = (
     "6️⃣ Lieber anders fahren?\n"
     "Auftrag antippen → „Als nächstes“ oder „Nach hinten“.\n\n"
     "📡 Am besten: Live-Standort teilen\n"
-    "📎 → Standort → „Live-Standort teilen“ → 8 Stunden.\n"
+    "📎 → Standort → „Live-Standort teilen“ → „Bis ich es beende“.\n"
     "Dann stimmen Ankunftszeiten und die „Jetzt anrufen“-Erinnerung genau. "
     "Nur der Bot sieht ihn, sonst niemand.\n\n"
     "📍 Wenn Telegram fragt, ob die Route deinen Standort nutzen darf: Erlauben.\n\n"
@@ -168,11 +169,22 @@ async def on_location(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not allowed(uid) or not msg.location:
         return
     db.upsert_user(uid, update.effective_chat.id, update.effective_user.first_name or "")
-    db.set_location(uid, msg.location.latitude, msg.location.longitude)
-    if update.edited_message:  # Live-Standort: nur still aktualisieren
+    user = db.get_user(uid)
+    live = bool(msg.location.live_period)
+    if update.edited_message:  # Live-Standort: still aktualisieren – außer Monteur hat Live ausgeschaltet
+        if user and user["live_off"]:
+            return
+        db.set_location(uid, msg.location.latitude, msg.location.longitude)
         return
-    if msg.location.live_period:
-        await msg.reply_text("📡 Live-Standort aktiv – deine Route passt sich jetzt automatisch an.",
+    db.set_location(uid, msg.location.latitude, msg.location.longitude)
+    if live:
+        # 0x7FFFFFFF = "Bis ich es beende"
+        period = msg.location.live_period
+        until = msg.date + (timedelta(days=365) if period >= 0x7FFFFFFF else timedelta(seconds=period))
+        db.set_live_until(uid, until)
+        db.set_live_off(uid, False)
+        await msg.reply_text("📡 Live-Standort aktiv – deine Route passt sich jetzt automatisch an.\n"
+                             "Ausschalten geht in der Route oben bei „Live aus“.",
                              reply_markup=app_button())
         return
     if WEBAPP_URL:

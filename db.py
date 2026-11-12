@@ -56,6 +56,12 @@ def _init(c: sqlite3.Connection) -> None:
         );
         """
     )
+    # Spalten für Live-Standort nachrüsten (alte Datenbanken)
+    cols = {r["name"] for r in c.execute("PRAGMA table_info(users)").fetchall()}
+    if "live_until" not in cols:
+        c.execute("ALTER TABLE users ADD COLUMN live_until TEXT")
+    if "live_off" not in cols:
+        c.execute("ALTER TABLE users ADD COLUMN live_off INTEGER DEFAULT 0")
     c.commit()
 
 
@@ -95,6 +101,18 @@ def set_location(user_id: int, lat: float, lng: float) -> None:
     c = con()
     c.execute("UPDATE users SET lat=?, lng=?, loc_time=? WHERE user_id=?",
               (lat, lng, iso(now_utc()), user_id))
+    c.commit()
+
+
+def set_live_until(user_id: int, until: datetime | None) -> None:
+    c = con()
+    c.execute("UPDATE users SET live_until=? WHERE user_id=?", (iso(until) if until else None, user_id))
+    c.commit()
+
+
+def set_live_off(user_id: int, off: bool) -> None:
+    c = con()
+    c.execute("UPDATE users SET live_off=? WHERE user_id=?", (1 if off else 0, user_id))
     c.commit()
 
 

@@ -104,6 +104,10 @@ async def api_action(request: web.Request):
     elif action == "order":
         ids = body.get("ids") or []
         ok = service.set_order(uid, [int(i) for i in ids if str(i).isdigit()])
+    elif action == "live_off":
+        db.set_live_off(uid, True)
+    elif action == "live_on":
+        db.set_live_off(uid, False)
     elif action == "auto":
         ok = service.set_order(uid, [])
     elif action == "call":
