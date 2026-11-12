@@ -304,25 +304,40 @@ def mark_notified(order_id: int, kind: str) -> None:
 
 # ---------- Text für den Chat ----------
 
+NUMS = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
+
+
+def clock_text(rem: float) -> str:
+    icon = "🟢" if rem >= 120 else "🟡" if rem >= 60 else "🔴"
+    return f"{icon} noch {hm(rem)}" if rem >= 0 else f"🔴 {hm(-rem)} drüber"
+
+
+def short_name(name: str) -> str:
+    """'Frau Broverdan Gaststätte' -> 'Broverdan Gaststätte'"""
+    parts = name.split()
+    if len(parts) > 1 and parts[0].lower() in ("frau", "herr", "fr.", "hr.", "firma"):
+        return " ".join(parts[1:])
+    return name
+
+
 def format_list(state: dict) -> str:
+    """Kurze Übersicht für den Chat – alles Weitere steht in der Mini-App."""
     if not state["stops"]:
-        return "Keine offenen Aufträge. Leite mir einfach einen Auftrag weiter."
-    lines = ["🚐 Deine Route" + (" (eigene Reihenfolge)" if state["mode"] == "manual" else "")]
+        return "Keine offenen Aufträge 👍"
+    n = len(state["stops"])
+    head = f"🚐 {n} offen" + (" · eigene Reihenfolge" if state["mode"] == "manual" else "")
+    lines = [head, ""]
     for s in state["stops"]:
-        rem = s["remaining_min"]
-        clock = f"noch {hm(rem)}" if rem >= 0 else f"⚠️ {hm(-rem)} drüber"
-        icon = "🟢" if rem >= 120 else "🟡" if rem >= 60 else "🔴"
-        nr = f"{s['pos']}." if s["pos"] else "?."
-        line = f"\n{nr} {s['name']} – {s['city'] or s['plz']}\n   {icon} {clock} · rein {s['received_hm']}"
+        nr = NUMS[s["pos"] - 1] if s["pos"] and s["pos"] <= 10 else "❔"
+        flag = " ⚠️" if (s["far"] or s["late_min"] >= 10 or not s["geo_ok"]) and not s["ack"] else ""
+        call = " 📞" if s["call_ahead_min"] else ""
+        lines.append(f"{nr} {short_name(s['name'])} · {s['city'] or s['plz']}{call}{flag}")
+        info = [clock_text(s["remaining_min"])]
         if s["eta_hm"]:
-            line += f" · an ca. {s['eta_hm']}"
+            info.append(f"an {s['eta_hm']}")
         if s["km"] is not None:
-            line += f" · {round(s['km'])} km"
-        if s["call_ahead_min"]:
-            line += f"\n   📞 {s['call_ahead_min']} Min vorher anrufen"
-        lines.append(line)
-    if state["warnings"]:
-        lines.append("\n" + "\n".join("⚠️ " + w for w in state["warnings"]))
-    if state["hint"]:
-        lines.append("💡 " + state["hint"])
+            info.append(f"{round(s['km'])} km")
+        lines.append("      " + "  ·  ".join(info))
+    if not state["has_location"]:
+        lines += ["", "📍 Standort fehlt"]
     return "\n".join(lines)

@@ -50,21 +50,30 @@ def tel_intl(phone: str) -> str:
 # ---------- Tastaturen ----------
 
 def main_keyboard() -> ReplyKeyboardMarkup:
-    row = [KeyboardButton("📍 Standort senden", request_location=True)]
+    """Unten nur ein großer Button: Mini-App öffnen."""
     if WEBAPP_URL:
-        row.append(KeyboardButton("🗺 Route öffnen", web_app=WebAppInfo(WEBAPP_URL)))
-    return ReplyKeyboardMarkup([row, [KeyboardButton("📋 Liste")]], resize_keyboard=True)
+        return ReplyKeyboardMarkup([[KeyboardButton("🗺 Route öffnen", web_app=WebAppInfo(WEBAPP_URL))]],
+                                   resize_keyboard=True, is_persistent=True)
+    # Notlösung ohne Mini-App
+    return ReplyKeyboardMarkup([[KeyboardButton("📍 Standort senden", request_location=True)],
+                                [KeyboardButton("📋 Liste")]], resize_keyboard=True)
+
+
+def app_button() -> InlineKeyboardMarkup | None:
+    if not WEBAPP_URL:
+        return None
+    return InlineKeyboardMarkup([[InlineKeyboardButton("🗺 Route öffnen", web_app=WebAppInfo(WEBAPP_URL))]])
 
 
 def list_markup(state: dict) -> InlineKeyboardMarkup | None:
+    """Wenige Buttons: nur der nächste Auftrag + Navi + Mini-App. Der Rest läuft in der Mini-App."""
     rows = []
-    for s in state["stops"][:8]:
-        n = s["pos"] or "?"
-        rows.append([
-            InlineKeyboardButton(f"✅ {n} fertig", callback_data=f"d:{s['id']}"),
-            InlineKeyboardButton("+30 Min", callback_data=f"e30:{s['id']}"),
-            InlineKeyboardButton("+1 Std", callback_data=f"e60:{s['id']}"),
-        ])
+    if WEBAPP_URL:
+        rows.append([InlineKeyboardButton("🗺 Route öffnen", web_app=WebAppInfo(WEBAPP_URL))])
+    first = state["stops"][0] if state["stops"] else None
+    if first:
+        rows.append([InlineKeyboardButton(f"✅ {service.short_name(first['name'])} fertig",
+                                          callback_data=f"d:{first['id']}")])
     nav = []
     if state["google_route"]:
         nav.append(InlineKeyboardButton("Google Maps", url=state["google_route"]))
@@ -72,17 +81,18 @@ def list_markup(state: dict) -> InlineKeyboardMarkup | None:
         nav.append(InlineKeyboardButton("Apple Karten", url=state["apple_next"]))
     if nav:
         rows.append(nav)
-    if WEBAPP_URL:
-        rows.append([InlineKeyboardButton("🗺 Route öffnen", web_app=WebAppInfo(WEBAPP_URL))])
     return InlineKeyboardMarkup(rows) if rows else None
 
 
 def time_markup(oid: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([
+    rows = [
         [InlineKeyboardButton("+30 Min", callback_data=f"e30:{oid}"),
          InlineKeyboardButton("+1 Std", callback_data=f"e60:{oid}")],
         [InlineKeyboardButton("👍 Passt, Kunde weiß Bescheid", callback_data=f"ack:{oid}")],
-    ])
+    ]
+    if WEBAPP_URL:
+        rows.append([InlineKeyboardButton("🗺 Route öffnen", web_app=WebAppInfo(WEBAPP_URL))])
+    return InlineKeyboardMarkup(rows)
 
 
 # ---------- Befehle ----------
@@ -98,13 +108,8 @@ async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
     await update.message.reply_text(
         f"Hallo {u.first_name}! 👋\n\n"
-        "So geht's:\n"
-        "1️⃣ Auftrag in der Gruppe lange drücken → Weiterleiten → an mich\n"
-        "   (mehrere auf einmal markieren geht auch)\n"
-        "2️⃣ 📍 Standort senden – dann rechne ich die beste Route\n"
-        "3️⃣ 🗺 Route öffnen – alle Aufträge mit Countdown, Navi, Anrufen, Fertig\n\n"
-        "Wichtig: Weiterleiten, nicht kopieren – sonst fehlt mir die Uhrzeit.\n"
-        "Ich melde mich, wenn die Zeit knapp wird oder du vorher anrufen musst.",
+        "Aufträge aus der Gruppe einfach an mich weiterleiten.\n"
+        "Alles andere unten über 🗺 Route öffnen.",
         reply_markup=main_keyboard(),
     )
 
@@ -131,9 +136,11 @@ async def on_location(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     db.set_location(uid, msg.location.latitude, msg.location.longitude)
     if update.edited_message:  # Live-Standort: nur still aktualisieren
         return
+    if WEBAPP_URL:
+        await msg.reply_text("📍 Standort gespeichert", reply_markup=app_button())
+        return
     state = await service.build_state(uid)
-    await msg.reply_text("📍 Standort da, Route neu berechnet.\n\n" + service.format_list(state),
-                         reply_markup=list_markup(state))
+    await msg.reply_text(service.format_list(state), reply_markup=list_markup(state))
 
 
 async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -164,25 +171,19 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     for oid, status, geo_ok in results:
         s = by_id.get(oid)
         if status == "doppelt":
-            name = s["name"] if s else "Auftrag"
-            lines.append(f"↩️ {name} ist schon drin.")
+            lines.append(f"↩️ {service.short_name(s['name']) if s else 'Auftrag'} ist schon drin")
             continue
         if not s:
             continue
-        rem = s["remaining_min"]
-        clock = f"noch {service.hm(rem)}" if rem >= 0 else f"schon {service.hm(-rem)} drüber"
-        line = (f"✅ {s['name']} – {s['city'] or s['plz']}\n"
-                f"   rein {s['received_hm']} · Frist {s['deadline_hm']} · {clock}")
-        if s["pos"]:
-            line += f"\n   Platz {s['pos']} von {len(state['stops'])}"
-        if s["time_source"] == "empfangen":
-            line += "\n   ⚠️ Uhrzeit geschätzt – bitte weiterleiten statt kopieren"
+        line = f"✅ {service.short_name(s['name'])} · {s['city'] or s['plz']} – Platz {s['pos'] or '?'}"
         if not geo_ok:
-            line += "\n   ⚠️ Adresse nicht gefunden – bitte prüfen"
+            line += "  ⚠️ Adresse prüfen"
         lines.append(line)
-    if not state["has_location"]:
-        lines.append("\n📍 Schick mir noch deinen Standort, dann wird die Route genau.")
-    await msg.reply_text("\n".join(lines), reply_markup=list_markup(state))
+    if WEBAPP_URL:
+        await msg.reply_text("\n".join(lines), reply_markup=app_button())
+    else:
+        lines += ["", service.format_list(state)]
+        await msg.reply_text("\n".join(lines), reply_markup=list_markup(state))
 
 
 async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -221,7 +222,7 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     state = await service.build_state(uid)
     text = getattr(q.message, "text", "") or ""
     try:
-        if text.startswith("🚐") or text.startswith("📍") or text.startswith("✅"):
+        if text.startswith(("🚐", "✅", "↩️", "Keine")):
             await q.edit_message_text(service.format_list(state), reply_markup=list_markup(state))
         else:  # Warnung/Erinnerung: nur abhaken
             await q.edit_message_text(text + "\n\n" + note)
@@ -291,8 +292,11 @@ async def run():
 
     async with application:
         if WEBAPP_URL:
-            await application.bot.set_chat_menu_button(
-                menu_button=MenuButtonWebApp("Route", WebAppInfo(WEBAPP_URL)))
+            try:
+                await application.bot.set_chat_menu_button(
+                    menu_button=MenuButtonWebApp("Route", WebAppInfo(WEBAPP_URL)))
+            except Exception as e:  # noqa: BLE001 – Bot soll trotzdem laufen
+                log.error("Menü-Button nicht gesetzt (WEBAPP_URL prüfen: %r): %s", WEBAPP_URL, e)
         await application.start()
         await application.updater.start_polling(allowed_updates=Update.ALL_TYPES)
         task = asyncio.create_task(notify_loop(application))

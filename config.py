@@ -4,11 +4,13 @@ from zoneinfo import ZoneInfo
 
 TZ = ZoneInfo("Europe/Berlin")
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
 # Öffentliche HTTPS-Adresse der Mini-App, z. B. https://routenbot.up.railway.app
-WEBAPP_URL = os.environ.get("WEBAPP_URL", "").rstrip("/")
+WEBAPP_URL = os.environ.get("WEBAPP_URL", "").strip().rstrip("/")
+if WEBAPP_URL and not WEBAPP_URL.startswith("http"):
+    WEBAPP_URL = "https://" + WEBAPP_URL
 # Kostenloser Key von openrouteservice.org (Adressen + Fahrzeiten)
-ORS_API_KEY = os.environ.get("ORS_API_KEY", "")
+ORS_API_KEY = os.environ.get("ORS_API_KEY", "").strip()
 PORT = int(os.environ.get("PORT", "8080"))
 DB_PATH = os.environ.get("DB_PATH", "routenbot.db")
 
