@@ -253,7 +253,7 @@ function handoff(id){
 }
 
 if (!initData) {
-  document.getElementById("app").innerHTML = '<div class="empty">Bitte die Route über den Bot in Telegram öffnen.</div>';
+  document.getElementById("app").innerHTML = '<div class="empty">Keine Anmeldung von Telegram.<br><br>Bitte über den Button „🗺 Route öffnen“ in einer Bot-Nachricht oder über „Route“ links unten neben dem Eingabefeld öffnen.</div>';
 } else {
   load().then(() => refreshLocation());
   setInterval(tick, 1000);

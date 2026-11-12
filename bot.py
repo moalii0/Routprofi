@@ -14,7 +14,7 @@ import re
 from aiohttp import web
 from telegram import (
     InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, MenuButtonWebApp,
-    ReplyKeyboardMarkup, Update, WebAppInfo,
+    ReplyKeyboardMarkup, ReplyKeyboardRemove, Update, WebAppInfo,
 )
 from telegram.ext import (
     Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters,
@@ -49,11 +49,11 @@ def tel_intl(phone: str) -> str:
 
 # ---------- Tastaturen ----------
 
-def main_keyboard() -> ReplyKeyboardMarkup:
-    """Unten nur ein großer Button: Mini-App öffnen."""
+def main_keyboard():
+    """Mit Mini-App: keine Tastatur. Achtung: Tastatur-Buttons geben der Mini-App KEINE
+    Anmeldedaten mit – darum nur Inline-Button + Menü-Button "Route" links unten."""
     if WEBAPP_URL:
-        return ReplyKeyboardMarkup([[KeyboardButton("🗺 Route öffnen", web_app=WebAppInfo(WEBAPP_URL))]],
-                                   resize_keyboard=True, is_persistent=True)
+        return ReplyKeyboardRemove()
     # Notlösung ohne Mini-App
     return ReplyKeyboardMarkup([[KeyboardButton("📍 Standort senden", request_location=True)],
                                 [KeyboardButton("📋 Liste")]], resize_keyboard=True)
@@ -106,10 +106,17 @@ async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             f"Deine ID: {u.id}\nSchick die ID an die Zentrale."
         )
         return
+    if WEBAPP_URL:
+        # alte Tastatur entfernen, dann Button zur Mini-App
+        await update.message.reply_text(f"Hallo {u.first_name}! 👋", reply_markup=ReplyKeyboardRemove())
+        await update.message.reply_text(
+            "Aufträge aus der Gruppe einfach an mich weiterleiten.\n"
+            "Deine Route öffnest du hier oder links unten über „Route“.",
+            reply_markup=app_button(),
+        )
+        return
     await update.message.reply_text(
-        f"Hallo {u.first_name}! 👋\n\n"
-        "Aufträge aus der Gruppe einfach an mich weiterleiten.\n"
-        "Alles andere unten über 🗺 Route öffnen.",
+        f"Hallo {u.first_name}! 👋\n\nAufträge aus der Gruppe einfach an mich weiterleiten.",
         reply_markup=main_keyboard(),
     )
 
