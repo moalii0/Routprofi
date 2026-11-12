@@ -181,6 +181,9 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             lines.append(f"↩️ {service.short_name(s['name']) if s else 'Auftrag'} ist schon drin")
             continue
         if not s:
+            o = db.get_order(uid, oid)
+            if o and o["status"] == "offen":
+                lines.append(f"⏭ {service.short_name(o['name'])} ist von gestern – nicht mehr in der Route")
             continue
         line = f"✅ {service.short_name(s['name'])} · {s['city'] or s['plz']} – Platz {s['pos'] or '?'}"
         if not geo_ok:

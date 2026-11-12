@@ -28,5 +28,7 @@ DEFAULT_WAIT_H = float(os.environ.get("DEFAULT_WAIT_H", "3"))
 LATE_WEIGHT = float(os.environ.get("LATE_WEIGHT", "2"))
 # Ab wie viel Restzeit gewarnt wird (Minuten)
 WARN_MIN = int(os.environ.get("WARN_MIN", "60"))
+# Uhrzeit, ab der jeden Tag eine neue Route beginnt (ältere Aufträge werden ausgeblendet)
+RESET_HOUR = int(os.environ.get("RESET_HOUR", "4"))
 # Ab dieser Strecke (km) gilt ein Auftrag als "weit weg"
 FAR_KM = float(os.environ.get("FAR_KM", "60"))

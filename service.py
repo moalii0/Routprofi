@@ -183,7 +183,7 @@ async def build_state(user_id: int) -> dict:
     closed = [
         {"id": o["id"], "name": o["name"], "city": place(o), "status": o["status"],
          "done_hm": local_hm(db.parse_iso(o["done_at"]))}
-        for o in db.closed_since(user_id, now.astimezone(TZ).replace(hour=0, minute=0, second=0, microsecond=0))
+        for o in db.closed_since(user_id, db.day_start(now))
     ]
 
     first = out_stops[0] if out_stops else None

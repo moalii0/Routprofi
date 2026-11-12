@@ -155,10 +155,22 @@ def get_order_by_id(order_id: int):
     return con().execute("SELECT * FROM orders WHERE id=?", (order_id,)).fetchone()
 
 
+def day_start(now: datetime | None = None) -> datetime:
+    """Beginn des aktuellen Arbeitstags (RESET_HOUR Uhr, deutsche Zeit)."""
+    from config import TZ, RESET_HOUR
+    from datetime import timedelta
+    local = (now or now_utc()).astimezone(TZ)
+    start = local.replace(hour=RESET_HOUR, minute=0, second=0, microsecond=0)
+    if local < start:
+        start -= timedelta(days=1)
+    return start.astimezone(timezone.utc)
+
+
 def open_orders(user_id: int):
+    """Nur offene Aufträge vom aktuellen Arbeitstag – jeden Tag frische Route."""
     return con().execute(
-        "SELECT * FROM orders WHERE user_id=? AND status='offen' ORDER BY received_at",
-        (user_id,),
+        "SELECT * FROM orders WHERE user_id=? AND status='offen' AND received_at>=? ORDER BY received_at",
+        (user_id, iso(day_start())),
     ).fetchall()
 
 
