@@ -152,7 +152,7 @@ function render(){
     h += `<div class="hint"><div class="row between"><div>${s.mode==="manual" ? "<b>Eigene Reihenfolge</b>" : ""}${s.hint ? "<div>"+esc(s.hint)+"</div>" : ""}</div>
       ${s.mode==="manual" ? `<button class="small" style="width:auto" onclick="act({action:'auto'})">Automatisch</button>` : ""}</div></div>`;
   }
-  if (s.warnings.length) h += `<div class="warn">${s.warnings.map(w => "⚠️ " + esc(w)).join("<br>")}</div>`;
+  if (!s.has_location && s.stops.length) h += `<div class="warn">📍 Standort fehlt – tipp oben auf „Standort neu“</div>`;
 
   if (!s.stops.length) h += `<div class="empty">Keine offenen Aufträge.<br>Leite dem Bot einfach einen Auftrag aus der Gruppe weiter.</div>`;
   else h += `<div class="section">Offen – beste Reihenfolge</div>` + s.stops.map(card).join("");
@@ -168,18 +168,20 @@ function render(){
 
 function card(st){
   const open = openIds.has(st.id);
+  // höchstens zwei kleine Schildchen: Anrufen + das wichtigste Problem
   const tags = [];
-  if (st.call_ahead_min) tags.push(`<span class="tag t-blue">📞 ${st.call_ahead_min} Min vorher anrufen</span>`);
-  if (st.far) tags.push(`<span class="tag t-amber">weit weg – abgeben?</span>`);
+  if (st.call_ahead_min) tags.push(`<span class="tag t-blue">📞 ${st.call_ahead_min} Min vorher</span>`);
   if (!st.geo_ok) tags.push(`<span class="tag t-red">Adresse prüfen</span>`);
-  if (st.late_min >= 10 && !st.ack) tags.push(`<span class="tag t-red">ca. ${hm(st.late_min)} zu spät</span>`);
-  if (st.ack) tags.push(`<span class="tag">Kunde weiß Bescheid</span>`);
-  if (st.extend_min) tags.push(`<span class="tag">+${hm(st.extend_min)} verlängert</span>`);
-  if (st.time_source === "empfangen") tags.push(`<span class="tag t-amber">Uhrzeit geschätzt</span>`);
+  else if (st.far && !st.ack) tags.push(`<span class="tag t-amber">weit weg</span>`);
+  else if (st.late_min >= 10 && !st.ack) tags.push(`<span class="tag t-red">${hm(st.late_min)} zu spät</span>`);
   const meta = [esc(st.city || st.plz)];
   if (st.km != null) meta.push(Math.round(st.km) + " km");
-  if (st.drive_min != null) meta.push(st.drive_min + " Min Fahrt");
-  if (st.eta_hm) meta.push("an ca. " + st.eta_hm);
+  if (st.eta_hm) meta.push("an " + st.eta_hm);
+  const notes = [];
+  if (st.late_min >= 10) notes.push(`Kommt ca. ${hm(st.late_min)} nach der Frist an.`);
+  if (st.far) notes.push(`${Math.round(st.km)} km Strecke – lieber abgeben?`);
+  if (st.extend_min) notes.push(`+${hm(st.extend_min)} verlängert.`);
+  if (st.ack) notes.push("Kunde weiß Bescheid.");
 
   let d = "";
   if (open) {
@@ -188,16 +190,17 @@ function card(st){
       <p><span class="lbl">Adresse</span><br>${esc(st.address)}</p>
       ${st.info ? `<p><span class="lbl">Info</span><br>${esc(st.info)}</p>` : ""}
       ${st.extra ? `<p><span class="lbl">Sonstiges</span><br>${esc(st.extra)}</p>` : ""}
-      <p><span class="lbl">Zeit</span><br>Rein um ${esc(st.received_hm)} · Frist ${esc(st.deadline_hm)}<br><span class="sub">${esc(st.time_source_label)}</span></p>
+      <p><span class="lbl">Zeit</span><br>Rein ${esc(st.received_hm)} · Frist ${esc(st.deadline_hm)}${st.time_source==="empfangen" ? ' <span class="sub">(geschätzt)</span>' : ""}</p>
+      ${notes.length ? `<p class="c-amber" style="font-size:13px">${notes.map(esc).join("<br>")}</p>` : ""}
       <div class="grid2 mt8">
-        ${st.phone ? `<a class="btn btn-soft" href="tel:${esc(tel)}">📞 Anrufen</a><button class="btn-soft" onclick="act({action:'call',id:${st.id}})">Nummer in Chat</button>` : ""}
-        <button class="btn-soft" onclick="openUrl('${esc(st.google)}')">Google Maps</button>
-        <button class="btn-soft" onclick="openUrl('${esc(st.apple)}')">Apple Karten</button>
+        ${st.phone ? `<a class="btn btn-soft" href="tel:${esc(tel)}">📞 Anrufen</a>` : ""}
+        <button class="btn-soft" onclick="openUrl('${esc(st.google)}')">🧭 Google Maps</button>
+        <button class="btn-soft" onclick="openUrl('${esc(st.apple)}')">🧭 Apple Karten</button>
         <button class="btn-soft" onclick="act({action:'extend',id:${st.id},minutes:30})">+30 Min</button>
         <button class="btn-soft" onclick="act({action:'extend',id:${st.id},minutes:60})">+1 Std</button>
+        ${!st.ack ? `<button class="btn-soft" onclick="act({action:'ack',id:${st.id}})">Kunde weiß Bescheid</button>` : ""}
         ${st.pos && st.pos > 1 ? `<button class="btn-soft" onclick="moveFirst(${st.id})">Als nächstes</button>` : ""}
         ${st.pos && st.pos < routeIds().length ? `<button class="btn-soft" onclick="moveLast(${st.id})">Nach hinten</button>` : ""}
-        ${!st.ack ? `<button class="btn-soft" onclick="act({action:'ack',id:${st.id}})">Passt, Kunde weiß Bescheid</button>` : ""}
         <button class="btn-soft" onclick="handoff(${st.id})">Abgeben</button>
       </div>
       <button class="btn-ok mt8" onclick="finish(${st.id})">✅ Fertig</button>
