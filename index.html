@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<title>Route</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+:root{
+  --bg: var(--tg-theme-secondary-bg-color, #f2f2f7);
+  --card: var(--tg-theme-bg-color, #ffffff);
+  --text: var(--tg-theme-text-color, #111);
+  --muted: var(--tg-theme-hint-color, #8a8a8e);
+  --accent: var(--tg-theme-button-color, #2481cc);
+  --accent-text: var(--tg-theme-button-text-color, #fff);
+  --line: rgba(127,127,127,.18);
+  --green:#1f9d55; --green-bg:rgba(31,157,85,.12);
+  --amber:#c27803; --amber-bg:rgba(230,160,20,.15);
+  --red:#d93025; --red-bg:rgba(217,48,37,.12);
+  --blue-bg:rgba(36,129,204,.12);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:12px 12px 40px}
+h1{font-size:20px;margin:0}
+.sub{color:var(--muted);font-size:13px}
+.row{display:flex;align-items:center;gap:8px}
+.between{justify-content:space-between}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.box{background:var(--card);border-radius:14px;padding:10px 12px}
+.stat .n{font-size:22px;font-weight:600}
+button,.btn{appearance:none;border:0;border-radius:10px;padding:10px 8px;font:inherit;font-size:14px;font-weight:500;background:var(--card);color:var(--accent);cursor:pointer;text-align:center;text-decoration:none;display:block;width:100%}
+button:active{transform:scale(.98)}
+.btn-main{background:var(--accent);color:var(--accent-text)}
+.btn-ok{background:var(--green);color:#fff}
+.btn-soft{background:var(--bg);color:var(--text)}
+.small{font-size:12px;padding:6px 10px;width:auto}
+.card{background:var(--card);border-radius:14px;margin-bottom:8px;overflow:hidden}
+.head{display:flex;gap:10px;padding:12px;cursor:pointer;align-items:flex-start}
+.num{width:30px;height:30px;border-radius:50%;background:var(--blue-bg);color:var(--accent);display:flex;align-items:center;justify-content:center;font-weight:600;flex-shrink:0}
+.name{font-weight:600;font-size:15px}
+.clock{font-weight:700;font-size:17px;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.c-green{color:var(--green)} .c-amber{color:var(--amber)} .c-red{color:var(--red)}
+.bar{height:5px;background:var(--bg);border-radius:3px;overflow:hidden;margin:0 12px 10px}
+.bar div{height:5px;border-radius:3px}
+.tags{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
+.tag{font-size:11px;padding:2px 7px;border-radius:6px;background:var(--bg);color:var(--muted)}
+.t-amber{background:var(--amber-bg);color:var(--amber)} .t-red{background:var(--red-bg);color:var(--red)} .t-blue{background:var(--blue-bg);color:var(--accent)}
+.detail{border-top:1px solid var(--line);padding:10px 12px 12px;font-size:14px}
+.detail p{margin:0 0 6px}
+.lbl{color:var(--muted);font-size:12px}
+.warn{background:var(--amber-bg);color:var(--amber);border-radius:12px;padding:10px 12px;font-size:13px;margin-bottom:10px}
+.hint{background:var(--blue-bg);border-radius:12px;padding:10px 12px;font-size:13px;margin-bottom:10px}
+.section{color:var(--muted);font-size:12px;margin:14px 2px 6px;text-transform:uppercase;letter-spacing:.04em}
+.done{display:flex;justify-content:space-between;align-items:center;background:var(--card);border-radius:12px;padding:8px 12px;margin-bottom:6px;color:var(--muted)}
+.empty{text-align:center;color:var(--muted);padding:30px 10px}
+.mt8{margin-top:8px}.mb10{margin-bottom:10px}
+#err{display:none;background:var(--red-bg);color:var(--red);border-radius:12px;padding:10px 12px;margin-bottom:10px;font-size:13px}
+</style>
+</head>
+<body>
+<div id="err"></div>
+<div id="app"><div class="empty">Lade Aufträge…</div></div>
+
+<script>
+const tg = window.Telegram && window.Telegram.WebApp;
+if (tg) { tg.ready(); tg.expand(); }
+const initData = (tg && tg.initData) || "";
+let state = null, openIds = new Set(), lastLoc = null, busy = false;
+
+const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const hm = min => { const neg = min < 0; min = Math.abs(Math.round(min)); return (neg?"-":"") + Math.floor(min/60) + ":" + String(min%60).padStart(2,"0"); };
+const hms = sec => { const neg = sec < 0; sec = Math.abs(Math.floor(sec)); const h=Math.floor(sec/3600), m=Math.floor(sec%3600/60), s=sec%60; return (neg?"-":"")+h+":"+String(m).padStart(2,"0")+":"+String(s).padStart(2,"0"); };
+const telIntl = p => { p = String(p||"").replace(/[^\d+]/g,""); if (p.startsWith("00")) return "+"+p.slice(2); if (p.startsWith("0")) return "+49"+p.slice(1); return p; };
+const haptic = t => { try { tg.HapticFeedback.notificationOccurred(t || "success"); } catch(e){} };
+
+function showError(msg){ const e=document.getElementById("err"); e.textContent=msg; e.style.display=msg?"block":"none"; }
+
+async function api(path, body){
+  const r = await fetch(path, { method: body ? "POST" : "GET",
+    headers: {"Content-Type":"application/json","X-Init-Data": initData},
+    body: body ? JSON.stringify(body) : undefined });
+  if (!r.ok) throw new Error(await r.text() || ("Fehler " + r.status));
+  return r.json();
+}
+async function load(){
+  try { state = await api("/api/state"); showError(""); render(); }
+  catch(e){ showError(e.message); }
+}
+async function act(body){
+  if (busy) return; busy = true;
+  try {
+    if (lastLoc) { body.lat = lastLoc.lat; body.lng = lastLoc.lng; }
+    state = await api("/api/action", body); showError(""); render();
+    if (state.ok === false) haptic("error"); else haptic("success");
+  } catch(e){ showError(e.message); haptic("error"); }
+  finally { busy = false; }
+}
+
+function getLocation(){
+  return new Promise(resolve => {
+    const done = (lat,lng) => { if (lat!=null) lastLoc = {lat,lng}; resolve(lat!=null); };
+    try {
+      if (tg && tg.LocationManager && tg.isVersionAtLeast && tg.isVersionAtLeast("8.0")) {
+        tg.LocationManager.init(() => {
+          if (!tg.LocationManager.isLocationAvailable) return browserLoc(done);
+          tg.LocationManager.getLocation(d => d ? done(d.latitude, d.longitude) : browserLoc(done));
+        });
+        return;
+      }
+    } catch(e){}
+    browserLoc(done);
+  });
+}
+function browserLoc(done){
+  if (!navigator.geolocation) return done(null);
+  navigator.geolocation.getCurrentPosition(p => done(p.coords.latitude, p.coords.longitude),
+    () => done(null), {enableHighAccuracy:true, timeout:12000, maximumAge:60000});
+}
+async function refreshLocation(btn){
+  if (btn) btn.textContent = "Suche Standort…";
+  const ok = await getLocation();
+  if (ok) await act({action:"location"});
+  else { showError("Standort nicht verfügbar. Erlaube den Standort für Telegram oder schick ihn im Chat über „📍 Standort senden“."); render(); }
+}
+
+function openUrl(url){ if (!url) return; if (tg && tg.openLink) tg.openLink(url); else window.open(url, "_blank"); }
+function confirmBox(text, cb){ if (tg && tg.showConfirm) tg.showConfirm(text, cb); else cb(window.confirm(text)); }
+
+function colorFor(remMin){ return remMin >= 120 ? "green" : remMin >= 60 ? "amber" : "red"; }
+function routeIds(){ return state.stops.filter(s => s.pos).map(s => s.id); }
+
+function render(){
+  if (!state) return;
+  const s = state;
+  const locTxt = s.has_location ? ("Standort vor " + (s.loc_age_min||0) + " Min") : "Standort fehlt";
+  let h = `
+  <div class="row between mb10">
+    <div><h1>Deine Route</h1><div class="sub">${esc(locTxt)}${s.route_real ? "" : (s.stops.length ? " · Fahrzeiten geschätzt" : "")}</div></div>
+    <button class="small btn-soft" style="width:auto" onclick="refreshLocation(this)">📍 Standort neu</button>
+  </div>
+  <div class="grid2 mb10">
+    <div class="box stat"><div class="sub">Offen</div><div class="n">${s.counts.open}</div></div>
+    <div class="box stat"><div class="sub">Fertig heute</div><div class="n">${s.counts.done}</div></div>
+  </div>`;
+  if (s.stops.length) {
+    h += `<div class="grid2 mb10">
+      <button class="btn-main" onclick="openUrl(state.google_route)" ${s.google_route?"":"disabled"}>Google Maps<br><span style="font-size:11px;opacity:.85">ganze Route</span></button>
+      <button onclick="openUrl(state.apple_next)">Apple Karten<br><span style="font-size:11px;color:var(--muted)">nächster Auftrag</span></button>
+    </div>`;
+  }
+  if (s.mode === "manual" || s.hint) {
+    h += `<div class="hint"><div class="row between"><div>${s.mode==="manual" ? "<b>Eigene Reihenfolge</b>" : ""}${s.hint ? "<div>"+esc(s.hint)+"</div>" : ""}</div>
+      ${s.mode==="manual" ? `<button class="small" style="width:auto" onclick="act({action:'auto'})">Automatisch</button>` : ""}</div></div>`;
+  }
+  if (s.warnings.length) h += `<div class="warn">${s.warnings.map(w => "⚠️ " + esc(w)).join("<br>")}</div>`;
+
+  if (!s.stops.length) h += `<div class="empty">Keine offenen Aufträge.<br>Leite dem Bot einfach einen Auftrag aus der Gruppe weiter.</div>`;
+  else h += `<div class="section">Offen – beste Reihenfolge</div>` + s.stops.map(card).join("");
+
+  if (s.closed.length) {
+    h += `<div class="section">Heute erledigt</div>` + s.closed.map(c => `
+      <div class="done"><div>${c.status==="fertig"?"✅":"↪️"} ${esc(c.name)} <span class="sub">· ${esc(c.city)} · ${esc(c.done_hm)}${c.status==="abgegeben"?" · abgegeben":""}</span></div>
+      <button class="small btn-soft" style="width:auto" onclick="act({action:'undo',id:${c.id}})">Rückgängig</button></div>`).join("");
+  }
+  document.getElementById("app").innerHTML = h;
+  tick();
+}
+
+function card(st){
+  const open = openIds.has(st.id);
+  const tags = [];
+  if (st.call_ahead_min) tags.push(`<span class="tag t-blue">📞 ${st.call_ahead_min} Min vorher anrufen</span>`);
+  if (st.far) tags.push(`<span class="tag t-amber">weit weg – abgeben?</span>`);
+  if (!st.geo_ok) tags.push(`<span class="tag t-red">Adresse prüfen</span>`);
+  if (st.late_min >= 10 && !st.ack) tags.push(`<span class="tag t-red">ca. ${hm(st.late_min)} zu spät</span>`);
+  if (st.ack) tags.push(`<span class="tag">Kunde weiß Bescheid</span>`);
+  if (st.extend_min) tags.push(`<span class="tag">+${hm(st.extend_min)} verlängert</span>`);
+  if (st.time_source === "empfangen") tags.push(`<span class="tag t-amber">Uhrzeit geschätzt</span>`);
+  const meta = [esc(st.city || st.plz)];
+  if (st.km != null) meta.push(Math.round(st.km) + " km");
+  if (st.drive_min != null) meta.push(st.drive_min + " Min Fahrt");
+  if (st.eta_hm) meta.push("an ca. " + st.eta_hm);
+
+  let d = "";
+  if (open) {
+    const tel = telIntl(st.phone);
+    d = `<div class="detail">
+      <p><span class="lbl">Adresse</span><br>${esc(st.address)}</p>
+      ${st.info ? `<p><span class="lbl">Info</span><br>${esc(st.info)}</p>` : ""}
+      ${st.extra ? `<p><span class="lbl">Sonstiges</span><br>${esc(st.extra)}</p>` : ""}
+      <p><span class="lbl">Zeit</span><br>Rein um ${esc(st.received_hm)} · Frist ${esc(st.deadline_hm)}<br><span class="sub">${esc(st.time_source_label)}</span></p>
+      <div class="grid2 mt8">
+        ${st.phone ? `<a class="btn btn-soft" href="tel:${esc(tel)}">📞 Anrufen</a><button class="btn-soft" onclick="act({action:'call',id:${st.id}})">Nummer in Chat</button>` : ""}
+        <button class="btn-soft" onclick="openUrl('${esc(st.google)}')">Google Maps</button>
+        <button class="btn-soft" onclick="openUrl('${esc(st.apple)}')">Apple Karten</button>
+        <button class="btn-soft" onclick="act({action:'extend',id:${st.id},minutes:30})">+30 Min</button>
+        <button class="btn-soft" onclick="act({action:'extend',id:${st.id},minutes:60})">+1 Std</button>
+        ${st.pos && st.pos > 1 ? `<button class="btn-soft" onclick="moveFirst(${st.id})">Als nächstes</button>` : ""}
+        ${st.pos && st.pos < routeIds().length ? `<button class="btn-soft" onclick="moveLast(${st.id})">Nach hinten</button>` : ""}
+        ${!st.ack ? `<button class="btn-soft" onclick="act({action:'ack',id:${st.id}})">Passt, Kunde weiß Bescheid</button>` : ""}
+        <button class="btn-soft" onclick="handoff(${st.id})">Abgeben</button>
+      </div>
+      <button class="btn-ok mt8" onclick="finish(${st.id})">✅ Fertig</button>
+    </div>`;
+  }
+  return `<div class="card">
+    <div class="head" onclick="toggle(${st.id})">
+      <div class="num">${st.pos || "?"}</div>
+      <div style="flex:1;min-width:0">
+        <div class="name">${esc(st.name)}</div>
+        <div class="sub">${meta.join(" · ")}</div>
+        <div class="tags">${tags.join("")}</div>
+      </div>
+      <div><div class="clock" id="clk-${st.id}"></div><div class="sub" style="text-align:right" id="wait-${st.id}"></div></div>
+    </div>
+    <div class="bar"><div id="bar-${st.id}"></div></div>
+    ${d}
+  </div>`;
+}
+
+function tick(){
+  if (!state) return;
+  const now = Date.now();
+  for (const st of state.stops) {
+    const left = (new Date(st.deadline).getTime() - now) / 1000;
+    const since = (now - new Date(st.received_at).getTime()) / 1000;
+    const total = (st.wait_min + st.extend_min) * 60;
+    const c = colorFor(left / 60);
+    const clk = document.getElementById("clk-" + st.id);
+    if (!clk) continue;
+    clk.className = "clock c-" + c;
+    clk.textContent = left >= 0 ? "noch " + hms(left) : hms(-left) + " drüber";
+    document.getElementById("wait-" + st.id).textContent = "wartet " + hm(since / 60);
+    const bar = document.getElementById("bar-" + st.id);
+    bar.style.width = Math.max(0, Math.min(100, since / total * 100)) + "%";
+    bar.style.background = "var(--" + c + ")";
+  }
+}
+
+function toggle(id){ openIds.has(id) ? openIds.delete(id) : openIds.add(id); render(); }
+function moveFirst(id){ const ids = routeIds().filter(x => x !== id); act({action:"order", ids:[id, ...ids]}); }
+function moveLast(id){ const ids = routeIds().filter(x => x !== id); act({action:"order", ids:[...ids, id]}); }
+function finish(id){
+  const st = state.stops.find(s => s.id === id);
+  confirmBox((st ? st.name : "Auftrag") + " fertig?", ok => { if (ok) { openIds.delete(id); getLocation().then(() => act({action:"done", id})); } });
+}
+function handoff(id){
+  const st = state.stops.find(s => s.id === id);
+  confirmBox((st ? st.name : "Auftrag") + " abgeben? Er verschwindet aus deiner Route.", ok => { if (ok) { openIds.delete(id); act({action:"handoff", id}); } });
+}
+
+if (!initData) {
+  document.getElementById("app").innerHTML = '<div class="empty">Bitte die Route über den Bot in Telegram öffnen.</div>';
+} else {
+  load().then(() => refreshLocation());
+  setInterval(tick, 1000);
+  setInterval(load, 60000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) load(); });
+}
+</script>
+</body>
+</html>
