@@ -53,8 +53,20 @@ def _auth(request: web.Request) -> int:
     return uid
 
 
+def _index_path() -> Path | None:
+    # static/index.html oder – falls ohne Ordner hochgeladen – index.html direkt neben bot.py
+    for p in (STATIC / "index.html", Path(__file__).parent / "index.html"):
+        if p.is_file():
+            return p
+    return None
+
+
 async def index(request: web.Request):
-    return web.FileResponse(STATIC / "index.html", headers={"Cache-Control": "no-cache"})
+    p = _index_path()
+    if not p:
+        log.error("index.html nicht gefunden – bitte hochladen")
+        return web.Response(text="index.html fehlt auf dem Server. Bitte hochladen.", status=500)
+    return web.FileResponse(p, headers={"Cache-Control": "no-cache"})
 
 
 async def api_state(request: web.Request):
