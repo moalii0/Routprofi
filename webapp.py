@@ -94,8 +94,8 @@ async def api_action(request: web.Request):
         ok = service.mark(uid, oid, "fertig")
     elif action == "undo":
         ok = service.mark(uid, oid, "offen")
-    elif action == "handoff":
-        ok = service.mark(uid, oid, "abgegeben")
+    elif action == "storno":
+        ok = service.mark(uid, oid, "storniert")
     elif action == "extend":
         minutes = body.get("minutes")
         ok = isinstance(minutes, int) and service.extend(uid, oid, minutes)

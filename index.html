@@ -96,35 +96,54 @@ async function act(body){
   finally { busy = false; }
 }
 
-function getLocation(){
-  return new Promise(resolve => {
-    const done = (lat,lng) => { if (lat!=null) lastLoc = {lat,lng}; resolve(lat!=null); };
+// LocationManager nur EINMAL initialisieren – ein zweites init() ruft den Callback nicht mehr auf
+// (das hat den Fertig-Knopf hängen lassen). Außerdem: nach max. 8 Sek. aufgeben.
+let lmReady = null;
+function initLM(){
+  if (lmReady) return lmReady;
+  lmReady = new Promise(res => {
     try {
       if (tg && tg.LocationManager && tg.isVersionAtLeast && tg.isVersionAtLeast("8.0")) {
-        tg.LocationManager.init(() => {
-          if (!tg.LocationManager.isLocationAvailable) return browserLoc(done);
-          tg.LocationManager.getLocation(d => d ? done(d.latitude, d.longitude) : browserLoc(done));
-        });
+        if (tg.LocationManager.isInited) return res(true);
+        tg.LocationManager.init(() => res(true));
+        setTimeout(() => res(tg.LocationManager.isInited), 3000);
+        return;
+      }
+    } catch(e){}
+    res(false);
+  });
+  return lmReady;
+}
+function getLocation(){
+  const p = new Promise(async resolve => {
+    const done = (lat,lng) => { if (lat!=null) lastLoc = {lat,lng}; resolve(lat!=null); };
+    try {
+      if (await initLM() && tg.LocationManager.isLocationAvailable) {
+        tg.LocationManager.getLocation(d => d ? done(d.latitude, d.longitude) : browserLoc(done));
         return;
       }
     } catch(e){}
     browserLoc(done);
   });
+  return Promise.race([p, new Promise(r => setTimeout(() => r(false), 8000))]);
 }
 function browserLoc(done){
   if (!navigator.geolocation) return done(null);
   navigator.geolocation.getCurrentPosition(p => done(p.coords.latitude, p.coords.longitude),
-    () => done(null), {enableHighAccuracy:true, timeout:12000, maximumAge:60000});
+    () => done(null), {enableHighAccuracy:true, timeout:7000, maximumAge:60000});
 }
 async function refreshLocation(btn){
   if (btn) btn.textContent = "Suche Standort…";
   const ok = await getLocation();
   if (ok) await act({action:"location"});
-  else { showError("Standort nicht verfügbar. Erlaube den Standort für Telegram oder schick ihn im Chat über „📍 Standort senden“."); render(); }
+  else { showError("Standort nicht verfügbar. Erlaube den Standort für Telegram in den Handy-Einstellungen."); render(); }
 }
 
-function openUrl(url){ if (!url) return; if (tg && tg.openLink) tg.openLink(url); else window.open(url, "_blank"); }
-function confirmBox(text, cb){ if (tg && tg.showConfirm) tg.showConfirm(text, cb); else cb(window.confirm(text)); }
+function openUrl(url){ if (!url) return; try { if (tg && tg.openLink) return tg.openLink(url); } catch(e){} window.open(url, "_blank"); }
+function confirmBox(text, cb){
+  try { if (tg && tg.showConfirm && tg.isVersionAtLeast && tg.isVersionAtLeast("6.2")) return tg.showConfirm(text, cb); } catch(e){}
+  cb(window.confirm(text));
+}
 
 function colorFor(remMin){ return remMin >= 120 ? "green" : remMin >= 60 ? "amber" : "red"; }
 function routeIds(){ return state.stops.filter(s => s.pos).map(s => s.id); }
@@ -159,7 +178,7 @@ function render(){
 
   if (s.closed.length) {
     h += `<div class="section">Heute erledigt</div>` + s.closed.map(c => `
-      <div class="done"><div>${c.status==="fertig"?"✅":"↪️"} ${esc(c.name)} <span class="sub">· ${esc(c.city)} · ${esc(c.done_hm)}${c.status==="abgegeben"?" · abgegeben":""}</span></div>
+      <div class="done"><div>${c.status==="fertig"?"✅":"❌"} ${esc(c.name)} <span class="sub">· ${esc(c.city)} · ${esc(c.done_hm)}${c.status==="storniert"?" · storniert":""}</span></div>
       <button class="small btn-soft" style="width:auto" onclick="act({action:'undo',id:${c.id}})">Rückgängig</button></div>`).join("");
   }
   document.getElementById("app").innerHTML = h;
@@ -201,7 +220,7 @@ function card(st){
         ${!st.ack ? `<button class="btn-soft" onclick="act({action:'ack',id:${st.id}})">Kunde weiß Bescheid</button>` : ""}
         ${st.pos && st.pos > 1 ? `<button class="btn-soft" onclick="moveFirst(${st.id})">Als nächstes</button>` : ""}
         ${st.pos && st.pos < routeIds().length ? `<button class="btn-soft" onclick="moveLast(${st.id})">Nach hinten</button>` : ""}
-        <button class="btn-soft" onclick="handoff(${st.id})">Abgeben</button>
+        <button class="btn-soft c-red" onclick="storno(${st.id})">❌ Storno</button>
       </div>
       <button class="btn-ok mt8" onclick="finish(${st.id})">✅ Fertig</button>
     </div>`;
@@ -243,13 +262,15 @@ function tick(){
 function toggle(id){ openIds.has(id) ? openIds.delete(id) : openIds.add(id); render(); }
 function moveFirst(id){ const ids = routeIds().filter(x => x !== id); act({action:"order", ids:[id, ...ids]}); }
 function moveLast(id){ const ids = routeIds().filter(x => x !== id); act({action:"order", ids:[...ids, id]}); }
-function finish(id){
-  const st = state.stops.find(s => s.id === id);
-  confirmBox((st ? st.name : "Auftrag") + " fertig?", ok => { if (ok) { openIds.delete(id); getLocation().then(() => act({action:"done", id})); } });
+// Fertig: sofort erledigt (unten "Rückgängig" möglich), Standort kommt danach im Hintergrund
+async function finish(id){
+  openIds.delete(id);
+  await act({action:"done", id});
+  if (await getLocation()) act({action:"location"});
 }
-function handoff(id){
+function storno(id){
   const st = state.stops.find(s => s.id === id);
-  confirmBox((st ? st.name : "Auftrag") + " abgeben? Er verschwindet aus deiner Route.", ok => { if (ok) { openIds.delete(id); act({action:"handoff", id}); } });
+  confirmBox((st ? st.name : "Auftrag") + " stornieren?", ok => { if (ok) { openIds.delete(id); act({action:"storno", id}); } });
 }
 
 if (!initData) {
