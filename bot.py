@@ -13,7 +13,7 @@ import re
 
 from aiohttp import web
 from telegram import (
-    InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, MenuButtonWebApp,
+    BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, MenuButtonWebApp,
     ReplyKeyboardMarkup, ReplyKeyboardRemove, Update, WebAppInfo,
 )
 from telegram.ext import (
@@ -111,7 +111,8 @@ async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Hallo {u.first_name}! 👋", reply_markup=ReplyKeyboardRemove())
         await update.message.reply_text(
             "Aufträge aus der Gruppe einfach an mich weiterleiten.\n"
-            "Deine Route öffnest du hier oder links unten über „Route“.",
+            "Deine Route öffnest du hier oder links unten über „Route“.\n"
+            "Anleitung: /hilfe",
             reply_markup=app_button(),
         )
         return
@@ -123,6 +124,33 @@ async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_id(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"Deine Telegram-ID: {update.effective_user.id}")
+
+
+HILFE = (
+    "🛠 So läuft's richtig\n\n"
+    "1️⃣ Auftrag rein\n"
+    "Auftrag in der Gruppe lange drücken → Weiterleiten → an mich.\n"
+    "Mehrere markieren geht auch. Nicht kopieren – sonst stimmt die Uhrzeit nicht.\n\n"
+    "2️⃣ Route ansehen\n"
+    "Links unten auf „Route“. Ich sortiere nach Weg und Restzeit.\n\n"
+    "3️⃣ Beim Kunden fertig → sofort ✅ Fertig\n"
+    "Wichtig! Dann weiß ich, wo du bist, und rechne die Route für den Rest neu.\n\n"
+    "4️⃣ Kunde sagt ab → ❌ Storno\n\n"
+    "5️⃣ Kunde sagt „später ist ok“\n"
+    "Auftrag antippen → +30 Min / +1 Std oder „Kunde weiß Bescheid“.\n\n"
+    "6️⃣ Lieber anders fahren?\n"
+    "Auftrag antippen → „Als nächstes“ oder „Nach hinten“.\n\n"
+    "📡 Am besten: Live-Standort teilen\n"
+    "📎 → Standort → „Live-Standort teilen“ → 8 Stunden.\n"
+    "Dann stimmen Ankunftszeiten und die „Jetzt anrufen“-Erinnerung genau. "
+    "Nur der Bot sieht ihn, sonst niemand.\n\n"
+    "📍 Wenn Telegram fragt, ob die Route deinen Standort nutzen darf: Erlauben.\n\n"
+    "🌅 Jeden Morgen um 4 Uhr startet die Route neu."
+)
+
+
+async def cmd_hilfe(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    await update.effective_message.reply_text(HILFE, reply_markup=app_button())
 
 
 async def show_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -142,6 +170,10 @@ async def on_location(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     db.upsert_user(uid, update.effective_chat.id, update.effective_user.first_name or "")
     db.set_location(uid, msg.location.latitude, msg.location.longitude)
     if update.edited_message:  # Live-Standort: nur still aktualisieren
+        return
+    if msg.location.live_period:
+        await msg.reply_text("📡 Live-Standort aktiv – deine Route passt sich jetzt automatisch an.",
+                             reply_markup=app_button())
         return
     if WEBAPP_URL:
         await msg.reply_text("📍 Standort gespeichert", reply_markup=app_button())
@@ -289,6 +321,7 @@ async def run():
     application = Application.builder().token(BOT_TOKEN).build()
     application.add_handler(CommandHandler("start", start, filters=PRIVATE))
     application.add_handler(CommandHandler("id", cmd_id, filters=PRIVATE))
+    application.add_handler(CommandHandler("hilfe", cmd_hilfe, filters=PRIVATE))
     application.add_handler(CommandHandler(["liste", "route"], show_list, filters=PRIVATE))
     application.add_handler(MessageHandler(PRIVATE & filters.LOCATION, on_location))
     application.add_handler(MessageHandler(PRIVATE & (filters.TEXT | filters.CAPTION) & ~filters.COMMAND
@@ -301,6 +334,14 @@ async def run():
     log.info("Webserver läuft auf Port %s", PORT)
 
     async with application:
+        try:
+            await application.bot.set_my_commands([
+                BotCommand("hilfe", "So funktioniert's"),
+                BotCommand("start", "Neu starten"),
+                BotCommand("id", "Meine Telegram-ID"),
+            ])
+        except Exception as e:  # noqa: BLE001
+            log.warning("Befehle nicht gesetzt: %s", e)
         if WEBAPP_URL:
             try:
                 await application.bot.set_chat_menu_button(

@@ -65,7 +65,17 @@ button:active{transform:scale(.98)}
 const tg = window.Telegram && window.Telegram.WebApp;
 if (tg) { tg.ready(); tg.expand(); }
 const initData = (tg && tg.initData) || "";
-let state = null, openIds = new Set(), lastLoc = null, busy = false;
+let state = null, openIds = new Set(), lastLoc = null, busy = false, helpOpen = false;
+const HELP = `<div class="box mb10" style="font-size:14px">
+  <div class="row between"><b>So läuft's richtig</b><button class="small btn-soft" style="width:auto" onclick="helpOpen=false;render()">Schließen</button></div>
+  <p class="mt8"><b>1. Auftrag rein:</b> In der Gruppe lange drücken → Weiterleiten → Routen-Bot. Nicht kopieren, sonst stimmt die Uhrzeit nicht.</p>
+  <p><b>2. Beim Kunden fertig → sofort ✅ Fertig.</b> Dann weiß der Bot, wo du bist, und rechnet die Route neu.</p>
+  <p><b>3. Kunde sagt ab →</b> ❌ Storno.</p>
+  <p><b>4. Kunde sagt „später ok“ →</b> +30 Min, +1 Std oder „Kunde weiß Bescheid“.</p>
+  <p><b>5. Anders fahren?</b> Auftrag antippen → „Als nächstes“ / „Nach hinten“.</p>
+  <p><b>📡 Am besten Live-Standort teilen:</b> Im Bot-Chat 📎 → Standort → „Live-Standort teilen“ → 8 Std. Dann stimmen Ankunft und „Jetzt anrufen“ genau. Nur der Bot sieht ihn.</p>
+  <p class="sub" style="margin:0">Falsch gedrückt? Unten bei „Heute erledigt“ → Rückgängig. Jeden Morgen um 4 Uhr startet die Route neu.</p>
+</div>`;
 
 const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const hm = min => { const neg = min < 0; min = Math.abs(Math.round(min)); return (neg?"-":"") + Math.floor(min/60) + ":" + String(min%60).padStart(2,"0"); };
@@ -155,8 +165,10 @@ function render(){
   let h = `
   <div class="row between mb10">
     <div><h1>Deine Route</h1><div class="sub">${esc(locTxt)}${s.route_real ? "" : (s.stops.length ? " · Fahrzeiten geschätzt" : "")}</div></div>
-    <button class="small btn-soft" style="width:auto" onclick="refreshLocation(this)">📍 Standort neu</button>
+    <div class="row"><button class="small btn-soft" style="width:auto" onclick="refreshLocation(this)">📍 Standort neu</button>
+    <button class="small btn-soft" style="width:auto" onclick="helpOpen=!helpOpen;render()" aria-label="Hilfe">❓</button></div>
   </div>
+  ${helpOpen ? HELP : ""}
   <div class="grid2 mb10">
     <div class="box stat"><div class="sub">Offen</div><div class="n">${s.counts.open}</div></div>
     <div class="box stat"><div class="sub">Fertig heute</div><div class="n">${s.counts.done}</div></div>
